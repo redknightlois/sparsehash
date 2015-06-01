@@ -63,9 +63,18 @@ namespace Dictionary
                 Assert.Equal(i, dict[i]);
             }
 
+            int count = 0;
+            foreach (var item in dict)
+            {
+                Assert.Equal(item.Key, item.Value);
+                count++;
+            }
+            Assert.Equal(100, count);
+
             Assert.Equal(100, dict.Count);
             Assert.Equal(256, dict.Capacity);
         }
+
 
         [Fact]
         public void ConsecutiveInsertionsWithIndexerAndGrow()
@@ -80,6 +89,15 @@ namespace Dictionary
                 Assert.True(dict.Contains(i));
                 Assert.Equal(i, dict[i]);
             }
+
+            int count = 0;
+            foreach (var item in dict)
+            {
+                Assert.Equal(item.Key, item.Value);
+                count++;
+            }
+            Assert.Equal(100, count);
+
 
             Assert.Equal(100, dict.Count);
             Assert.Equal(128, dict.Capacity);
@@ -98,6 +116,14 @@ namespace Dictionary
                 Assert.True(dict.Contains(i));
                 Assert.Equal(i, dict[i]);
             }
+
+            int count = 0;
+            foreach (var item in dict)
+            {
+                Assert.Equal(item.Key, item.Value);
+                count++;
+            }
+            Assert.Equal(100, count);
 
             Assert.Equal(100, dict.Count);
             Assert.Equal(256, dict.Capacity);

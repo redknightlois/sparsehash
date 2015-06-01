@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics.Contracts;
 using System.Linq;
@@ -9,7 +10,7 @@ using System.Threading.Tasks;
 
 namespace Dictionary
 {
-    public unsafe class FastDictionary<TKey, TValue>
+    public unsafe class FastDictionary<TKey, TValue> : IEnumerable<KeyValuePair<TKey,TValue>>
     {
         const int InvalidNodePosition = -1;
 
@@ -536,5 +537,84 @@ namespace Dictionary
 
             return v;
         }
+
+        IEnumerator IEnumerable.GetEnumerator()
+        {
+            return new Enumerator(this);
+        }
+
+        public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator()
+        {
+            return new Enumerator(this);
+        }      
+
+
+        [Serializable]
+        public struct Enumerator : IEnumerator<KeyValuePair<TKey, TValue>>
+        {
+            private FastDictionary<TKey, TValue> dictionary;
+            private int index;
+            private KeyValuePair<TKey, TValue> current;
+
+            internal const int DictEntry = 1;
+            internal const int KeyValuePair = 2;
+
+            internal Enumerator(FastDictionary<TKey, TValue> dictionary)
+            {
+                this.dictionary = dictionary;
+                index = 0;
+                current = new KeyValuePair<TKey, TValue>();
+            }
+
+            public bool MoveNext()
+            {
+                var dict = dictionary;
+
+                // Use unsigned comparison since we set index to dictionary.count+1 when the enumeration ends.
+                // dictionary.count+1 could be negative if dictionary.count is Int32.MaxValue
+                while (index < dict._capacity)
+                {
+                    if (dict._hashes[index] < kDeletedHash )
+                    {
+                        current = new KeyValuePair<TKey, TValue>(dict._keys[index], dict._values[index]);
+                        index++;
+                        return true;
+                    }
+                    index++;
+                }
+
+                index = dictionary._capacity + 1;
+                current = new KeyValuePair<TKey, TValue>();
+                return false;
+            }
+
+            public KeyValuePair<TKey, TValue> Current
+            {
+                get { return current; }
+            }
+
+            public void Dispose()
+            {
+            }
+
+            object IEnumerator.Current
+            {
+                get
+                {
+                    if (index == 0 || (index == dictionary._capacity + 1))
+                        throw new InvalidOperationException("Can't happen.");
+
+                    return new KeyValuePair<TKey, TValue>(current.Key, current.Value);
+                }
+            }
+
+            void IEnumerator.Reset()
+            {
+                index = 0;
+                current = new KeyValuePair<TKey, TValue>();
+            }
+        }
+
+
     }
 }
