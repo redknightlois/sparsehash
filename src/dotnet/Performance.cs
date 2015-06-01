@@ -15,8 +15,8 @@ namespace Dictionary
             Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.RealTime;
 
             Random rnd = new Random(13);
-            int[] tuples = new int[1000000];
-            string[] tuplesString = new string[1000000];
+            int[] tuples = new int[10000000];
+            string[] tuplesString = new string[10000000];
             for (int i = 0; i < tuples.Length; i++)
             {
                 tuples[i] = rnd.Next();

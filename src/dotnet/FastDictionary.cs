@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 
 namespace Dictionary
 {
-    public unsafe class FastDictionary<TKey, TValue> : IEnumerable<KeyValuePair<TKey,TValue>>
+    public class FastDictionary<TKey, TValue> : IEnumerable<KeyValuePair<TKey,TValue>>
     {
         const int InvalidNodePosition = -1;
 
@@ -68,7 +68,67 @@ namespace Dictionary
             get { return Count == 0; }
         }
 
-        public FastDictionary(int initialBucketCount = kInitialCapacity)
+        public FastDictionary(int initialBucketCount, IEnumerable<KeyValuePair<TKey, TValue>> src, IEqualityComparer<TKey> comparer)
+            : this(initialBucketCount, comparer)
+        {
+            Contract.Ensures(_capacity >= initialBucketCount);
+
+            foreach ( var item in src )
+                this[item.Key] = item.Value;
+        }
+
+        public FastDictionary(FastDictionary<TKey, TValue> src, IEqualityComparer<TKey> comparer) : this ( src.Capacity, src, comparer )
+        {}
+
+        public FastDictionary(int initialBucketCount, FastDictionary<TKey, TValue> src, IEqualityComparer<TKey> comparer)
+        {
+            Contract.Ensures(_capacity >= initialBucketCount);
+            Contract.Ensures(_capacity >= src._capacity);    
+       
+            this.comparer = comparer ?? EqualityComparer<TKey>.Default;           
+
+            _capacity = Math.Max( src._capacity, initialBucketCount );
+            _size = src._size;
+            _numberOfUsed = src._numberOfUsed;
+            _numberOfDeleted = src._numberOfDeleted;
+            _nextGrowthThreshold = src._nextGrowthThreshold;            
+
+            int newCapacity = _capacity;
+
+            if ( comparer == src.comparer )
+            {
+                // Initialization through copy (very efficient) because the comparer is the same.
+                _keys = new TKey[newCapacity];
+                _values = new TValue[newCapacity];
+                _hashes = new uint[newCapacity];
+
+                Array.Copy(src._keys, _keys, newCapacity);
+                Array.Copy(src._values, _values, newCapacity);
+                Array.Copy(src._hashes, _hashes, newCapacity);
+            }
+            else
+            {
+                // Initialization through rehashing because the comparer is not the same.
+                var keys = new TKey[newCapacity];
+                var values = new TValue[newCapacity];
+                var hashes = new uint[newCapacity];
+
+                for (int i = 0; i < newCapacity; i++)
+                    hashes[i] = kUnusedHash;
+
+                _keys = src._keys;
+                _values = src._values;
+                _hashes = src._hashes;
+
+                Rehash(keys, values, hashes);
+            }
+        }
+
+        public FastDictionary(IEqualityComparer<TKey> comparer)
+            : this(kInitialCapacity, comparer)
+        {}
+
+        public FastDictionary(int initialBucketCount, IEqualityComparer<TKey> comparer)
         {
             Contract.Ensures(_capacity >= initialBucketCount);
 
@@ -90,6 +150,10 @@ namespace Dictionary
 
             _nextGrowthThreshold = _capacity * 4 / tLoadFactor4;
         }
+
+        public FastDictionary(int initialBucketCount = kInitialCapacity)
+            : this(initialBucketCount, EqualityComparer<TKey>.Default)
+        {}
 
         public void Add(TKey key, TValue value)
         {
@@ -400,7 +464,7 @@ namespace Dictionary
             _nextGrowthThreshold = _capacity * 4 / tLoadFactor4;
         }
 
-        public bool TryLookup( TKey key, out TValue value )
+        public bool TryGetValue( TKey key, out TValue value )
         {
             int hash = GetInternalHashCode(key);
             int bucket = hash % _capacity;
@@ -615,6 +679,292 @@ namespace Dictionary
             }
         }
 
+        public KeyCollection Keys
+        {
+            get { return new KeyCollection(this); }
+        }
 
+        public ValueCollection Values
+        {
+            get { return new ValueCollection(this); }
+        }
+
+        public bool ContainsKey( TKey key )
+        {
+            return Contains(key);
+        }
+
+        public bool ContainsValue( TValue value )
+        {
+            var hashes = _hashes;
+            var values = _values;
+            int count = _capacity;
+
+            if (value == null)
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    if (hashes[i] < kDeletedHash && values[i] == null) 
+                        return true;
+                }
+            }
+            else
+            {
+                EqualityComparer<TValue> c = EqualityComparer<TValue>.Default;
+                for (int i = 0; i < count; i++)
+                {
+                    if (hashes[i] < kDeletedHash && c.Equals(values[i], value)) 
+                        return true;
+                }
+            }
+            return false;
+        }
+
+
+        public sealed class KeyCollection : IEnumerable<TKey>, IEnumerable
+        {
+            private FastDictionary<TKey, TValue> dictionary;
+
+            public KeyCollection(FastDictionary<TKey, TValue> dictionary)
+            {
+                Contract.Requires(dictionary != null);
+
+                this.dictionary = dictionary;
+            }
+
+            public Enumerator GetEnumerator()
+            {
+                return new Enumerator(dictionary);
+            }
+
+            public void CopyTo(TKey[] array, int index)
+            {
+                if (array == null)
+                    throw new ArgumentNullException("The array cannot be null", "array");
+
+                if (index < 0 || index > array.Length)
+                    throw new ArgumentOutOfRangeException("index");
+
+                if (array.Length - index < dictionary.Count)
+                    throw new ArgumentException("The array plus the offset is too small.");
+
+                int count = dictionary._capacity;
+
+                var hashes = dictionary._hashes;
+                var keys = dictionary._keys;
+
+                for (int i = 0; i < count; i++)
+                {
+                    if (hashes[i] < kDeletedHash)
+                        array[index++] = keys[i];
+                }
+            }
+
+            public int Count
+            {
+                get { return dictionary.Count; }
+            }
+
+
+            IEnumerator<TKey> IEnumerable<TKey>.GetEnumerator()
+            {
+                return new Enumerator(dictionary);
+            }
+
+            IEnumerator IEnumerable.GetEnumerator()
+            {
+                return new Enumerator(dictionary);
+            }
+
+
+            [Serializable]
+            public struct Enumerator : IEnumerator<TKey>, IEnumerator
+            {
+                private FastDictionary<TKey, TValue> dictionary;
+                private int index;
+                private TKey currentKey;
+
+                internal Enumerator(FastDictionary<TKey, TValue> dictionary)
+                {
+                    this.dictionary = dictionary;
+                    index = 0;
+                    currentKey = default(TKey);
+                }
+
+                public void Dispose()
+                {
+                }
+
+                public bool MoveNext()
+                {
+                    var count = dictionary.Count;
+
+                    var hashes = dictionary._hashes;
+                    var keys = dictionary._keys;
+                    while (index < count)
+                    {
+                        if (hashes[index] < kDeletedHash)
+                        {
+                            currentKey = keys[index];
+                            index++;
+                            return true;
+                        }
+                        index++;
+                    }
+
+                    index = count + 1;
+                    currentKey = default(TKey);
+                    return false;
+                }
+
+                public TKey Current
+                {
+                    get
+                    {
+                        return currentKey;
+                    }
+                }
+
+                Object System.Collections.IEnumerator.Current
+                {
+                    get
+                    {
+                        if (index == 0 || (index == dictionary.Count + 1))
+                            throw new InvalidOperationException("Cant happen.");
+
+                        return currentKey;
+                    }
+                }
+
+                void System.Collections.IEnumerator.Reset()
+                {
+                    index = 0;
+                    currentKey = default(TKey);
+                }
+            }
+        }
+
+
+
+        public sealed class ValueCollection : IEnumerable<TValue>, IEnumerable
+        {
+            private FastDictionary<TKey, TValue> dictionary;
+
+            public ValueCollection(FastDictionary<TKey, TValue> dictionary)
+            {
+                Contract.Requires(dictionary != null);
+
+                this.dictionary = dictionary;
+            }
+
+            public Enumerator GetEnumerator()
+            {
+                return new Enumerator(dictionary);
+            }
+
+            public void CopyTo(TValue[] array, int index)
+            {
+                if (array == null)
+                    throw new ArgumentNullException("The array cannot be null", "array");
+
+                if (index < 0 || index > array.Length)
+                    throw new ArgumentOutOfRangeException("index");
+
+                if (array.Length - index < dictionary.Count)
+                    throw new ArgumentException("The array plus the offset is too small.");
+
+                int count = dictionary._capacity;
+
+                var hashes = dictionary._hashes;
+                var values = dictionary._values;
+
+                for (int i = 0; i < count; i++)
+                {
+                    if (hashes[i] < kDeletedHash)
+                        array[index++] = values[i];
+                }
+            }
+
+            public int Count
+            {
+                get { return dictionary.Count; }
+            }
+
+            IEnumerator<TValue> IEnumerable<TValue>.GetEnumerator()
+            {
+                return new Enumerator(dictionary);
+            }
+
+            IEnumerator IEnumerable.GetEnumerator()
+            {
+                return new Enumerator(dictionary);
+            }
+
+       
+            [Serializable]
+            public struct Enumerator : IEnumerator<TValue>, IEnumerator
+            {
+                private FastDictionary<TKey, TValue> dictionary;
+                private int index;
+                private TValue currentValue;
+
+                internal Enumerator(FastDictionary<TKey, TValue> dictionary)
+                {
+                    this.dictionary = dictionary;
+                    index = 0;
+                    currentValue = default(TValue);
+                }
+
+                public void Dispose()
+                {
+                }
+
+                public bool MoveNext()
+                {
+                    var count = dictionary.Count;
+
+                    var hashes = dictionary._hashes;
+                    var values = dictionary._values;
+                    while (index < count)
+                    {
+                        if (hashes[index] < kDeletedHash)
+                        {
+                            currentValue = values[index];
+                            index++;
+                            return true;
+                        }
+                        index++;
+                    }
+
+                    index = count + 1;
+                    currentValue = default(TValue);
+                    return false;
+                }
+
+                public TValue Current
+                {
+                    get
+                    {
+                        return currentValue;
+                    }
+                }
+                Object IEnumerator.Current
+                {
+                    get
+                    {
+                        if (index == 0 || (index == dictionary.Count + 1))
+                            throw new InvalidOperationException("Cant happen.");
+
+                        return currentValue;
+                    }
+                }
+
+                void IEnumerator.Reset()
+                {
+                    index = 0;
+                    currentValue = default(TValue);
+                }
+            }
+        }
     }
 }
