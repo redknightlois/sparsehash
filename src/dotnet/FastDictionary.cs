@@ -3,6 +3,8 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics.Contracts;
 using System.Linq;
+using System.Reflection;
+using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -10,7 +12,7 @@ using System.Threading.Tasks;
 
 namespace Dictionary
 {
-    public class FastDictionary<TKey, TValue> : IEnumerable<KeyValuePair<TKey,TValue>>
+    public class FastDictionary<TKey, TValue> : IEnumerable<KeyValuePair<TKey, TValue>>
     {
         const int InvalidNodePosition = -1;
 
@@ -73,29 +75,30 @@ namespace Dictionary
         {
             Contract.Ensures(_capacity >= initialBucketCount);
 
-            foreach ( var item in src )
+            foreach (var item in src)
                 this[item.Key] = item.Value;
         }
 
-        public FastDictionary(FastDictionary<TKey, TValue> src, IEqualityComparer<TKey> comparer) : this ( src.Capacity, src, comparer )
-        {}
+        public FastDictionary(FastDictionary<TKey, TValue> src, IEqualityComparer<TKey> comparer)
+            : this(src.Capacity, src, comparer)
+        { }
 
         public FastDictionary(int initialBucketCount, FastDictionary<TKey, TValue> src, IEqualityComparer<TKey> comparer)
         {
             Contract.Ensures(_capacity >= initialBucketCount);
-            Contract.Ensures(_capacity >= src._capacity);    
-       
-            this.comparer = comparer ?? EqualityComparer<TKey>.Default;           
+            Contract.Ensures(_capacity >= src._capacity);
 
-            _capacity = Math.Max( src._capacity, initialBucketCount );
+            this.comparer = comparer ?? EqualityComparer<TKey>.Default;
+
+            _capacity = Math.Max(src._capacity, initialBucketCount);
             _size = src._size;
             _numberOfUsed = src._numberOfUsed;
             _numberOfDeleted = src._numberOfDeleted;
-            _nextGrowthThreshold = src._nextGrowthThreshold;            
+            _nextGrowthThreshold = src._nextGrowthThreshold;
 
             int newCapacity = _capacity;
 
-            if ( comparer == src.comparer )
+            if (comparer == src.comparer)
             {
                 // Initialization through copy (very efficient) because the comparer is the same.
                 _keys = new TKey[newCapacity];
@@ -113,6 +116,8 @@ namespace Dictionary
                 var values = new TValue[newCapacity];
                 var hashes = new uint[newCapacity];
 
+                // BlockCopyMemoryHelper.Memset( hashes, 0, newCapacity, kUnusedHash);
+
                 for (int i = 0; i < newCapacity; i++)
                     hashes[i] = kUnusedHash;
 
@@ -126,7 +131,7 @@ namespace Dictionary
 
         public FastDictionary(IEqualityComparer<TKey> comparer)
             : this(kInitialCapacity, comparer)
-        {}
+        { }
 
         public FastDictionary(int initialBucketCount, IEqualityComparer<TKey> comparer)
         {
@@ -153,7 +158,7 @@ namespace Dictionary
 
         public FastDictionary(int initialBucketCount = kInitialCapacity)
             : this(initialBucketCount, EqualityComparer<TKey>.Default)
-        {}
+        { }
 
         public void Add(TKey key, TValue value)
         {
@@ -171,15 +176,15 @@ namespace Dictionary
 
             Contract.Assert(_numberOfUsed < _capacity);
 
-            int numProbes = 0;
+            int numProbes = 1;
             bool couldInsert = false;
             while (!couldInsert)
-            {
-                numProbes++;
-
+            {               
                 bucket = (bucket + numProbes) % _capacity;
 
                 couldInsert = TryAdd(bucket, (uint)hash, key, value);
+
+                numProbes++;
             }
         }
 
@@ -251,7 +256,7 @@ namespace Dictionary
             _hashes = hashes;
             _keys = keys;
             _values = values;
-            
+
             _numberOfUsed = _size;
             _numberOfDeleted = 0;
         }
@@ -278,7 +283,8 @@ namespace Dictionary
                 var keys = _keys;
                 var values = _values;
 
-                if (CompareKey(hashes[bucket], keys[bucket], (uint)hash, key))
+                var nKeys = keys[bucket];
+                if (CompareKey(hashes[bucket], nKeys, (uint)hash, key))
                     return values[bucket];
 
                 int numProbes = 1; // how many times we've probed
@@ -289,7 +295,8 @@ namespace Dictionary
                 {
                     bucket = (bucket + numProbes) % _capacity;
 
-                    if (CompareKey(hashes[bucket], keys[bucket], (uint)hash, key, ref canContinue))
+                    nKeys = keys[bucket];
+                    if (CompareKey(hashes[bucket], nKeys, (uint)hash, key, ref canContinue))
                         return values[bucket];
 
                     numProbes++;
@@ -300,7 +307,7 @@ namespace Dictionary
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             set
             {
-                Contract.Requires(key != null);                
+                Contract.Requires(key != null);
 
                 ResizeIfNeeded();
 
@@ -373,13 +380,13 @@ namespace Dictionary
 
                 goto SET;
             }
-            else if (CompareKey(nHash, _keys[node], hash, key ))
+            else if (CompareKey(nHash, _keys[node], hash, key))
             {
                 goto SET;
             }
             return false;
 
-            SET:
+        SET:
             SetNode(node, hash, key, value);
             return true;
         }
@@ -456,7 +463,7 @@ namespace Dictionary
 
             _keys = keys;
             _values = values;
-            _hashes = hashes;            
+            _hashes = hashes;
 
             _numberOfUsed = _size;
             _numberOfDeleted = 0;
@@ -464,7 +471,8 @@ namespace Dictionary
             _nextGrowthThreshold = _capacity * 4 / tLoadFactor4;
         }
 
-        public bool TryGetValue( TKey key, out TValue value )
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool TryGetValue(TKey key, out TValue value)
         {
             int hash = GetInternalHashCode(key);
             int bucket = hash % _capacity;
@@ -472,27 +480,29 @@ namespace Dictionary
             var hashes = _hashes;
             var keys = _keys;
 
-            if (CompareKey(hashes[bucket], keys[bucket], (uint)hash, key))
+            var nKey = keys[bucket];
+            if (CompareKey(hashes[bucket], nKey, (uint)hash, key))
             {
                 value = _values[bucket];
                 return true;
             }
 
-
-            uint numProbes = 0; // how many times we've probed
+            uint numProbes = 1; // how many times we've probed
             Contract.Assert(_numberOfUsed < _capacity);
 
             bool canContinue = true;
             while (canContinue)
             {
-                numProbes++;
                 bucket = (int)((bucket + numProbes) % _capacity);
 
-                if (CompareKey(hashes[bucket], keys[bucket], (uint)hash, key, ref canContinue))
+                nKey = keys[bucket];
+                if (CompareKey(hashes[bucket], nKey, (uint)hash, key, ref canContinue))
                 {
                     value = _values[bucket];
                     return true;
                 }
+
+                numProbes++;
             }
 
             value = default(TValue);
@@ -544,17 +554,18 @@ namespace Dictionary
                 return bucket;
 
 
-            uint numProbes = 0; // how many times we've probed
+            uint numProbes = 1; // how many times we've probed
             Contract.Assert(_numberOfUsed < _capacity);
 
             bool canContinue = true;
             while (canContinue)
             {
-                numProbes++;
                 bucket = (int)((bucket + numProbes) % _capacity);
 
                 if (CompareKey(hashes[bucket], keys[bucket], (uint)hash, key, ref canContinue))
                     return bucket;
+
+                numProbes++;
             }
 
             return InvalidNodePosition;
@@ -568,7 +579,7 @@ namespace Dictionary
 
         private void Rehash(TKey[] keys, TValue[] values, uint[] hashes)
         {
-            uint capacity = (uint) keys.Length;
+            uint capacity = (uint)keys.Length;
 
             for (int it = 0; it < _hashes.Length; it++)
             {
@@ -576,13 +587,13 @@ namespace Dictionary
                 uint bucket = hash % capacity;
 
                 uint numProbes = 0;
-                while (! (hashes[bucket] == kUnusedHash) )
+                while (!(hashes[bucket] == kUnusedHash))
                 {
                     numProbes++;
                     bucket = (bucket + numProbes) % capacity;
                 }
 
-                hashes[bucket] = _hashes[it];
+                hashes[bucket] = hash;
                 keys[bucket] = _keys[it];
                 values[bucket] = _values[it];
             }
@@ -602,6 +613,33 @@ namespace Dictionary
             return v;
         }
 
+        public void CopyTo(KeyValuePair<TKey, TValue>[] array, int index)
+        {
+            if (array == null)
+                throw new ArgumentNullException("The array cannot be null", "array");
+
+            if (array.Rank != 1)
+                throw new ArgumentException("Multiple dimensions array are not supporter", "array");
+
+            if (index < 0 || index > array.Length)
+                throw new ArgumentOutOfRangeException("index");
+
+            if (array.Length - index < Count)
+                throw new ArgumentException("The array plus the offset is too small.");
+
+            int count = _capacity;
+
+            var hashes = _hashes;
+            var keys = _keys;
+            var values = _values;
+
+            for (int i = 0; i < count; i++)
+            {
+                if (hashes[i] < kDeletedHash)
+                    array[index++] = new KeyValuePair<TKey, TValue>(keys[i], values[i]);
+            }
+        }
+
         IEnumerator IEnumerable.GetEnumerator()
         {
             return new Enumerator(this);
@@ -610,7 +648,7 @@ namespace Dictionary
         public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator()
         {
             return new Enumerator(this);
-        }      
+        }
 
 
         [Serializable]
@@ -638,7 +676,7 @@ namespace Dictionary
                 // dictionary.count+1 could be negative if dictionary.count is Int32.MaxValue
                 while (index < dict._capacity)
                 {
-                    if (dict._hashes[index] < kDeletedHash )
+                    if (dict._hashes[index] < kDeletedHash)
                     {
                         current = new KeyValuePair<TKey, TValue>(dict._keys[index], dict._values[index]);
                         index++;
@@ -689,12 +727,12 @@ namespace Dictionary
             get { return new ValueCollection(this); }
         }
 
-        public bool ContainsKey( TKey key )
+        public bool ContainsKey(TKey key)
         {
             return Contains(key);
         }
 
-        public bool ContainsValue( TValue value )
+        public bool ContainsValue(TValue value)
         {
             var hashes = _hashes;
             var values = _values;
@@ -704,7 +742,7 @@ namespace Dictionary
             {
                 for (int i = 0; i < count; i++)
                 {
-                    if (hashes[i] < kDeletedHash && values[i] == null) 
+                    if (hashes[i] < kDeletedHash && values[i] == null)
                         return true;
                 }
             }
@@ -713,7 +751,7 @@ namespace Dictionary
                 EqualityComparer<TValue> c = EqualityComparer<TValue>.Default;
                 for (int i = 0; i < count; i++)
                 {
-                    if (hashes[i] < kDeletedHash && c.Equals(values[i], value)) 
+                    if (hashes[i] < kDeletedHash && c.Equals(values[i], value))
                         return true;
                 }
             }
@@ -900,7 +938,7 @@ namespace Dictionary
                 return new Enumerator(dictionary);
             }
 
-       
+
             [Serializable]
             public struct Enumerator : IEnumerator<TValue>, IEnumerator
             {
@@ -963,6 +1001,31 @@ namespace Dictionary
                 {
                     index = 0;
                     currentValue = default(TValue);
+                }
+            }
+        }
+
+
+        private class BlockCopyMemoryHelper
+        {
+            public static void Memset(uint[] array, int start, int count, uint value)
+            {
+                int block = 64, index = 0;
+                int length = Math.Min(block, array.Length);
+
+                //Fill the initial array
+                while (index < length)
+                {
+                    array[index++] = value;
+                }
+
+                length = array.Length;
+                while (index < length)
+                {
+                    Buffer.BlockCopy(array, 0, array, index, Math.Min(block, length - index));
+                    index += block;
+
+                    block *= 2;
                 }
             }
         }

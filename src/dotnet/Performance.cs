@@ -15,8 +15,8 @@ namespace Dictionary
             Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.RealTime;
 
             Random rnd = new Random(13);
-            int[] tuples = new int[10000000];
-            string[] tuplesString = new string[10000000];
+            int[] tuples = new int[1000000];
+            string[] tuplesString = new string[1000000];
             for (int i = 0; i < tuples.Length; i++)
             {
                 tuples[i] = rnd.Next();
@@ -113,7 +113,8 @@ namespace Dictionary
                 int k;
                 for (int j = 0; j < tuples.Length; j++)
                 {
-                    k = fastDict[tuples[j]];
+                    fastDict.TryGetValue(tuples[j], out k);
+//                    k = fastDict[tuples[j]];
                     k++;
                 }
 
@@ -136,7 +137,8 @@ namespace Dictionary
                 int k;
                 for (int j = 0; j < tuples.Length; j++)
                 {
-                    k = fastDict[tuples[j]];
+                    fastDict.TryGetValue(tuples[j], out k);
+                    // k = fastDict[tuples[j]];
                     k++;
                 }
                     
@@ -159,7 +161,8 @@ namespace Dictionary
                 string k;
                 for (int j = 0; j < tuples.Length; j++)
                 {
-                    k = fastDict[j];
+                    fastDict.TryGetValue(j, out k);
+                    //k = fastDict[j];
                     if (k != null)
                         y++;
                 }
