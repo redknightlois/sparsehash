@@ -12,13 +12,11 @@ namespace Dictionary
     public unsafe class FastDictionary<TKey, TValue>
     {
         const int InvalidNodePosition = -1;
-        const uint InvalidHash = 0;
 
-        [StructLayout(LayoutKind.Sequential)]
         private struct Node
         {
-            public static readonly uint kUnusedHash = 0xFFFFFFFF;
-            public static readonly uint kDeletedHash = 0xFFFFFFFE;
+            public const uint kUnusedHash = 0xFFFFFFFF;
+            public const uint kDeletedHash = 0xFFFFFFFE;
 
             internal uint Hash;
             internal TKey Key;
@@ -34,19 +32,6 @@ namespace Dictionary
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 get { return Hash == kDeletedHash; }
             }
-            public bool IsOccupied
-            {
-                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                get { return Hash < kDeletedHash; }
-            }
-
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public Node(uint hash, TKey key, TValue value)
-            {
-                Hash = hash;
-                Key = key;
-                Value = value;
-            }
         }
 
         /// <summary>
@@ -60,11 +45,6 @@ namespace Dictionary
         /// By default, if you don't specify a hashtable size at construction-time, we use this size.  Must be a power of two, and  at least kMinBuckets.
         /// </summary>
         const int kInitialCapacity = 32;
-
-        /// <summary>
-        /// Node size calculated on generic type instantiation.
-        /// </summary>
-        static readonly int kNodeSize;
 
         // TLoadFactor4 - controls hash map load. 4 means 100% load, ie. hashmap will grow
         // when number of items == capacity. Default value of 6 means it grows when
@@ -82,16 +62,10 @@ namespace Dictionary
         private int _nextGrowthThreshold;
 
 
-        private IEqualityComparer<TKey> comparer;
+        private readonly IEqualityComparer<TKey> comparer;
         public IEqualityComparer<TKey> Comparer
         {
             get { return comparer; }
-        }
-
-
-        static FastDictionary()
-        {
-            kNodeSize = Marshal.SizeOf(default(Node));
         }
 
         public int Capacity
@@ -107,11 +81,6 @@ namespace Dictionary
         public bool IsEmpty
         {
             get { return Count == 0; }
-        }
-
-        public int UsedMemory
-        {
-            get { return _capacity * kNodeSize; }
         }
 
         private int NextPowerOf2(int v)
@@ -148,30 +117,30 @@ namespace Dictionary
 
         public void Add(TKey key, TValue value)
         {
-            if (key == null)
-                throw new ArgumentNullException("key");
-            Contract.EndContractBlock();
+            //if (key == null)
+            //    throw new ArgumentNullException("key");
+            //Contract.EndContractBlock();
 
-            ResizeIfNeeded();
+            //ResizeIfNeeded();
 
-            uint hash = GetInternalHashCode(key);
-            uint bucket = hash & _capacityMask;
+            //uint hash = GetInternalHashCode(key);
+            //uint bucket = hash & _capacityMask;
 
-            if (TryAdd(ref _nodes[bucket], hash, key, value))
-                return;
+            //if (TryAdd(ref _nodes[bucket], hash, ref key, value))
+            //    return;
 
-            Contract.Assert(_numberOfUsed < _capacity);
+            //Contract.Assert(_numberOfUsed < _capacity);
 
-            uint numProbes = 0;
-            bool couldInsert = false;
-            while (!couldInsert)
-            {
-                numProbes++;
+            //uint numProbes = 0;
+            //bool couldInsert = false;
+            //while (!couldInsert)
+            //{
+            //    numProbes++;
 
-                bucket = (bucket + numProbes) & _capacityMask;
+            //    bucket = (bucket + numProbes) & _capacityMask;
 
-                couldInsert = TryAdd(ref _nodes[bucket], hash, key, value);
-            }
+            //    couldInsert = TryAdd(ref _nodes[bucket], hash, ref key, value);
+            //}
         }
 
         public bool Remove(TKey key)
@@ -256,43 +225,75 @@ namespace Dictionary
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
             {
-                // Contract.Requires(key != null);
+                Contract.Requires(key != null);
 
-                int i = Lookup(key);
-                if (i == InvalidNodePosition)
-                    throw new KeyNotFoundException();
+                int hash = GetInternalHashCode(key);
+                //int hash = comparer.GetHashCode(key) & 0x7FFFFFFF;
+                //uint bucket = hash & _capacityMask;
+                int bucket = hash % _capacity;
 
-                return _nodes[i].Value;
+                var nodes = _nodes;
+                if (CompareKey(nodes[bucket].Hash, nodes[bucket].Key, (uint)hash, key))
+                    return nodes[bucket].Value;
+
+                //TValue value;
+                //if (CompareKey(ref nodes[bucket], ref key, (uint) hash, out value))
+                //    return value;
+
+                int numProbes = 1; // how many times we've probed
+                Contract.Assert(_numberOfUsed < _capacity);
+
+                bool canContinue = true;
+                while (canContinue)
+                {
+                    bucket = (bucket + numProbes) % _capacity;
+                    // bucket = (bucket + numProbes) & _capacityMask;
+
+                    //if (CompareKey(nodes[bucket].Hash, nodes[bucket].Key, hash, key, ref canContinue))
+                    //    return nodes[bucket].Value;
+                    if (CompareKey(ref nodes[bucket], ref key, (uint)hash, ref value, ref canContinue))
+                        return value;
+
+                    numProbes++;
+                }
+
+                throw new KeyNotFoundException();
             }
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
             set
             {
-                // Contract.Requires(key != null);                
+                Contract.Requires(key != null);                
 
                 ResizeIfNeeded();
 
-                uint hash = GetInternalHashCode(key);
-                uint bucket = hash & _capacityMask;
+                //uint hash = GetInternalHashCode(key);
+                int hash = comparer.GetHashCode(key) & 0x7FFFFFFF;
+                //uint bucket = hash & _capacityMask;
+                int bucket = hash % _capacity;
 
-                if (TryInsert(ref _nodes[bucket], hash, key, value))
+                var nodes = _nodes;
+
+                if (TryInsert(ref nodes[bucket], (uint)hash, key, value))
                     return;
 
                 Contract.Assert(_numberOfUsed < _capacity);
 
-                uint numProbes = 0;
+                int numProbes = 1;
                 bool couldInsert = false;
                 while (!couldInsert)
                 {
+                    //bucket = (bucket + numProbes) & _capacityMask;
+                    bucket = (bucket + numProbes) % _capacity;
+
+                    couldInsert = TryInsert(ref nodes[bucket], (uint)hash, key, value);
+
                     numProbes++;
-
-                    bucket = (bucket + numProbes) & _capacityMask;
-
-                    couldInsert = TryInsert(ref _nodes[bucket], hash, key, value);
                 }
             }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private bool TryAdd(ref Node node, uint hash, TKey key, TValue value)
+        private bool TryAdd(ref Node node, uint hash, ref TKey key, TValue value)
         {
             if (node.IsDeleted)
             {
@@ -323,32 +324,33 @@ namespace Dictionary
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool TryInsert(ref Node node, uint hash, TKey key, TValue value)
         {
-            if (node.IsDeleted)
+            uint nHash = node.Hash;
+            if (nHash == Node.kUnusedHash)
             {
-                SetNode(ref node, hash, key, value);
-
-                _numberOfDeleted--;
-                _size++;
-
-                return true;
-            }
-            else if (node.IsUnused)
-            {
-                SetNode(ref node, hash, key, value);
-
                 _numberOfUsed++;
                 _size++;
 
-                return true;
+                goto SET;
+            }
+            else if (nHash == Node.kDeletedHash)
+            {
+                _numberOfDeleted--;
+                _size++;
+
+                goto SET;
             }
             else if (CompareKey(ref node, key, hash))
             {
-                SetNode(ref node, hash, key, value);
-
-                return true;
+                goto SET;
             }
-
             return false;
+
+            SET:
+            node.Hash = hash;
+            node.Key = key;
+            node.Value = value;
+            return true;
+
         }
 
 
@@ -372,9 +374,12 @@ namespace Dictionary
 
         public void Clear()
         {
+            TKey defaultKey = default(TKey);
+            TValue defaultValue = default(TValue);
+
             for (int i = 0; i < _capacity; i++)
             {
-                SetNode(ref _nodes[i], Node.kUnusedHash, default(TKey), default(TValue));
+                SetNode(ref _nodes[i], Node.kUnusedHash, defaultKey, defaultValue);
             }
 
             _numberOfUsed = 0;
@@ -423,6 +428,96 @@ namespace Dictionary
             _nextGrowthThreshold = _capacity * 4 / tLoadFactor4;
         }
 
+        public bool TryLookup( TKey key, out TValue value )
+        {
+            throw new NotImplementedException();
+            //uint hash = GetInternalHashCode(key);
+            //uint bucket = hash & _capacityMask;
+
+            //if (CompareKey(ref _nodes[bucket], ref key, hash, out value))
+            //    return true;
+
+            //uint numProbes = 0; // how many times we've probed
+            //Contract.Assert(_numberOfUsed < _capacity);
+
+            //bool canContinue = true;
+            //while (canContinue)
+            //{
+            //    numProbes++;
+            //    bucket = (bucket + numProbes) & _capacityMask;
+
+            //    if (CompareKey(ref _nodes[bucket], ref key, hash, ref value, ref canContinue))
+            //        return true;
+            //}
+           
+            //return false;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private bool CompareKey(uint nHash, TKey nKey, uint hash, TKey key, ref bool probeAgain)
+        {
+            if (nHash != hash)
+                return false;
+
+            if (comparer.Equals(nKey, key))
+            {
+                probeAgain = nHash != Node.kUnusedHash;
+                return true;
+            }
+
+            return false;
+        }
+
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private bool CompareKey(ref Node node, ref TKey key, uint hash, ref TValue value, ref bool probeAgain)
+        {
+            var nHash = node.Hash;
+            if (nHash != hash)
+                return false;
+
+            if (comparer.Equals(node.Key, key))
+            {
+                value = node.Value;
+                probeAgain = nHash != Node.kUnusedHash;
+                return true;
+            }
+
+            return false;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private bool CompareKey(ref Node node, ref TKey key, uint hash, out TValue value)
+        {
+            var nHash = node.Hash;
+            if (nHash != hash)
+                goto NOTEQUAL;
+
+            var nKey = node.Key;
+            if (comparer.Equals(nKey, key))
+            {
+                value = node.Value;
+                return true;
+            }
+
+            NOTEQUAL:
+            value = default(TValue);
+            return false;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private bool CompareKey(uint nHash, TKey nKey, uint hash, TKey key)
+        {
+            if (nHash != hash)
+                return false;
+
+            if (comparer.Equals(nKey, key))
+                return true;
+
+            return false;
+        }
+
+
         /// <summary>
         /// 
         /// </summary>
@@ -431,68 +526,34 @@ namespace Dictionary
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private int Lookup(TKey key)
         {
-            uint hash = GetInternalHashCode(key);
-            uint bucket = hash & _capacityMask;
+            throw new NotImplementedException();
 
-            Node n = _nodes[bucket];
-            if (CompareKey(ref _nodes[bucket], key, hash))
-                return (int)bucket;
+            //uint hash = GetInternalHashCode(key);
+            //uint bucket = hash & _capacityMask;
 
-            uint numProbes = 0; // how many times we've probed
+            //Node n = _nodes[bucket];
+            //if (CompareKey(ref _nodes[bucket], key, hash))
+            //    return (int)bucket;
 
-            Contract.Assert(_numberOfUsed < _capacity);
-            while (!_nodes[bucket].IsUnused)
-            {
-                numProbes++;
+            //uint numProbes = 0; // how many times we've probed
 
-                bucket = (bucket + numProbes) & _capacityMask;
-                if (CompareKey(ref _nodes[bucket], key, hash))
-                    return (int)bucket;
-            }
+            //Contract.Assert(_numberOfUsed < _capacity);
+            //while (!_nodes[bucket].IsUnused)
+            //{
+            //    numProbes++;
 
-            return InvalidNodePosition;
-        }
+            //    bucket = (bucket + numProbes) & _capacityMask;
+            //    if (CompareKey(ref _nodes[bucket], key, hash))
+            //        return (int)bucket;
+            //}
 
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private int FindForInsert(TKey key, out uint hash)
-        {
-            hash = GetInternalHashCode(key);
-
-            uint bucket = hash & _capacityMask;
-            if (CompareKey(ref _nodes[bucket], key, hash))
-                return (int)bucket;
-
-            int freeNode = InvalidNodePosition;
-
-            Node n = _nodes[bucket];
-            if (n.IsDeleted)
-                freeNode = (int)bucket;
-
-            uint numProbes = 0;
-            Contract.Assert(_numberOfUsed < _capacity);
-
-            while (!n.IsUnused)
-            {
-                numProbes++;
-
-                bucket = (bucket + numProbes) & _capacityMask;
-
-                if (CompareKey(ref _nodes[bucket], key, hash))
-                    return (int)bucket;
-
-                n = _nodes[bucket];
-                if (n.IsDeleted && freeNode == InvalidNodePosition)
-                    freeNode = (int)bucket;
-            }
-
-            return freeNode != InvalidNodePosition ? freeNode : (int)bucket;
+            //return InvalidNodePosition;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private uint GetInternalHashCode(TKey key)
+        private int GetInternalHashCode(TKey key)
         {
-            return (uint)(comparer.GetHashCode(key));
+            return comparer.GetHashCode(key) & 0x7FFFFFFF;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
