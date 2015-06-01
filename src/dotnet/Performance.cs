@@ -25,17 +25,17 @@ namespace Dictionary
 
             int tries = 5;
 
-            BenchmarkNativeDictionary(tuples, tries);
-            BenchmarkFastDictionary(tuples, tries);
+            Console.WriteLine("Native: " + BenchmarkNativeDictionary(tuples, tries));
+            Console.WriteLine("Fast: " + BenchmarkFastDictionary(tuples, tries)); 
 
-            BenchmarkNativeDictionaryString(tuplesString, tries);
-            BenchmarkFastDictionaryString(tuplesString, tries);
+            Console.WriteLine("Native-String: " + BenchmarkNativeDictionaryString(tuplesString, tries));
+            Console.WriteLine("Fast-String: " + BenchmarkFastDictionaryString(tuplesString, tries)); 
 
-            BenchmarkNativeDictionaryStringOut(tuplesString, tries);
-            BenchmarkFastDictionaryStringOut(tuplesString, tries);
+            Console.WriteLine("Native-String-Out: " + BenchmarkNativeDictionaryStringOut(tuplesString, tries));
+            Console.WriteLine("Fast-String-Out: " + BenchmarkFastDictionaryStringOut(tuplesString, tries));
         }
 
-        private static void BenchmarkNativeDictionary(int[] tuples, int tries)
+        private static long BenchmarkNativeDictionary(int[] tuples, int tries)
         {
             var native = Stopwatch.StartNew();
             for (int i = 0; i < tries; i++)
@@ -46,13 +46,17 @@ namespace Dictionary
 
                 int k;
                 for (int j = 0; j < tuples.Length; j++)
+                {
                     k = nativeDict[tuples[j]];
+                    k++;
+                }
+                    
             }
             native.Stop();
-            Console.WriteLine("Native: " + native.ElapsedTicks);
+            return native.ElapsedMilliseconds;
         }
 
-        private static void BenchmarkNativeDictionaryString(string[] tuples, int tries)
+        private static long BenchmarkNativeDictionaryString(string[] tuples, int tries)
         {
             var native = Stopwatch.StartNew();
             for (int i = 0; i < tries; i++)
@@ -63,14 +67,19 @@ namespace Dictionary
 
                 int k;
                 for (int j = 0; j < tuples.Length; j++)
+                {
                     k = nativeDict[tuples[j]];
+                    k++;
+                }
+                    
             }
             native.Stop();
-            Console.WriteLine("Native-String: " + native.ElapsedTicks);
+            return native.ElapsedMilliseconds;
         }
 
-        private static void BenchmarkNativeDictionaryStringOut(string[] tuples, int tries)
+        private static long BenchmarkNativeDictionaryStringOut(string[] tuples, int tries)
         {
+            int y = 0;
             var native = Stopwatch.StartNew();
             for (int i = 0; i < tries; i++)
             {
@@ -80,13 +89,19 @@ namespace Dictionary
 
                 string k;
                 for (int j = 0; j < tuples.Length; j++)
+                {
                     k = nativeDict[j];
+                    if (k != null)
+                        y++;
+                }
+                    
+                    
             }
             native.Stop();
-            Console.WriteLine("Native-String-Out: " + native.ElapsedTicks);
+            return native.ElapsedMilliseconds;
         }
 
-        private static void BenchmarkFastDictionary(int[] tuples, int tries)
+        private static long BenchmarkFastDictionary(int[] tuples, int tries)
         {
             var fast = Stopwatch.StartNew();
             for (int i = 0; i < tries; i++)
@@ -97,13 +112,19 @@ namespace Dictionary
 
                 int k;
                 for (int j = 0; j < tuples.Length; j++)
+                {
                     k = fastDict[tuples[j]];
+                    k++;
+                }
+
+                
             }
-            fast.Stop();
-            Console.WriteLine("Fast: " + fast.ElapsedTicks);
+            fast.Stop(); 
+            return fast.ElapsedMilliseconds;
+            
         }
 
-        private static void BenchmarkFastDictionaryString(string[] tuples, int tries)
+        private static long BenchmarkFastDictionaryString(string[] tuples, int tries)
         {
             var fast = Stopwatch.StartNew();
             for (int i = 0; i < tries; i++)
@@ -114,15 +135,20 @@ namespace Dictionary
 
                 int k;
                 for (int j = 0; j < tuples.Length; j++)
+                {
                     k = fastDict[tuples[j]];
+                    k++;
+                }
+                    
             }
             fast.Stop();
-            Console.WriteLine("Fast-String: " + fast.ElapsedTicks);
+            return fast.ElapsedMilliseconds;
         }
 
 
-        private static void BenchmarkFastDictionaryStringOut(string[] tuples, int tries)
+        private static long BenchmarkFastDictionaryStringOut(string[] tuples, int tries)
         {
+            int y = 0;
             var fast = Stopwatch.StartNew();
             for (int i = 0; i < tries; i++)
             {
@@ -132,10 +158,15 @@ namespace Dictionary
 
                 string k;
                 for (int j = 0; j < tuples.Length; j++)
+                {
                     k = fastDict[j];
+                    if (k != null)
+                        y++;
+                }
+                    
             }
             fast.Stop();
-            Console.WriteLine("Fast-String-Out: " + fast.ElapsedTicks);
+            return fast.ElapsedMilliseconds;
         }
     }
 }
