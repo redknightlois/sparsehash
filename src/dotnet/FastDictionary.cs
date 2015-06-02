@@ -544,7 +544,7 @@ namespace Dictionary
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private int Lookup(TKey key)
         {
-            int hash = comparer.GetHashCode(key) & 0x7FFFFFFF;
+            int hash = GetInternalHashCode(key);
             int bucket = hash % _capacity;
 
             var hashes = _hashes;
