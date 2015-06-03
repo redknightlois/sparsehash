@@ -44,6 +44,7 @@ namespace Dictionary
 
         private int _capacity;
 
+        private int _initialCapacity;
         private int _size; // This is the real counter of how many items are in the hash-table (regardless of buckets)
         private int _numberOfUsed; // How many used buckets. 
         private int _numberOfDeleted; // how many occupied buckets are marked deleted
@@ -71,6 +72,20 @@ namespace Dictionary
             get { return Count == 0; }
         }
 
+        private static int[] nextPowerOf2Table;
+
+        static FastDictionary()
+        {
+            nextPowerOf2Table = new int[512];
+
+            for (int i = 0; i <= kMinBuckets; i++)
+                nextPowerOf2Table[i] = kMinBuckets;
+
+            for (int i = kMinBuckets + 1; i < nextPowerOf2Table.Length; i++)
+                nextPowerOf2Table[i] = NextPowerOf2(i);
+        }
+
+
         public FastDictionary(int initialBucketCount, IEnumerable<KeyValuePair<TKey, TValue>> src, IEqualityComparer<TKey> comparer)
             : this(initialBucketCount, comparer)
         {
@@ -81,7 +96,11 @@ namespace Dictionary
         }
 
         public FastDictionary(FastDictionary<TKey, TValue> src, IEqualityComparer<TKey> comparer)
-            : this(src.Capacity, src, comparer)
+            : this(src._capacity, src, comparer)
+        { }
+
+        public FastDictionary(FastDictionary<TKey, TValue> src)
+            : this(src._capacity, src, src.comparer)
         { }
 
         public FastDictionary(int initialBucketCount, FastDictionary<TKey, TValue> src, IEqualityComparer<TKey> comparer)
@@ -129,15 +148,22 @@ namespace Dictionary
 
         public FastDictionary(IEqualityComparer<TKey> comparer)
             : this(kInitialCapacity, comparer)
-        { }
+        { }    
 
         public FastDictionary(int initialBucketCount, IEqualityComparer<TKey> comparer)
         {
-            Contract.Ensures(_capacity >= initialBucketCount);
+            Contract.Ensures(_capacity >= initialBucketCount);            
 
             this.comparer = comparer ?? EqualityComparer<TKey>.Default;
 
-            int newCapacity = NextPowerOf2(initialBucketCount >= kMinBuckets ? initialBucketCount : kMinBuckets);
+            // Calculate the next power of 2.
+            int newCapacity = initialBucketCount >= kMinBuckets ? initialBucketCount : kMinBuckets;
+            if (newCapacity < nextPowerOf2Table.Length)
+                newCapacity = nextPowerOf2Table[newCapacity];
+            else
+                newCapacity = NextPowerOf2(newCapacity);
+
+            this._initialCapacity = newCapacity;
 
             // Initialization
             _keys = new TKey[newCapacity];
@@ -238,15 +264,17 @@ namespace Dictionary
             if (newCapacity < _size)
                 throw new ArgumentException("Cannot shrink the dictionary beyond the amount of elements in it.", "newCapacity");
 
-            newCapacity = NextPowerOf2(newCapacity);
-            if (newCapacity < kMinBuckets)
-                newCapacity = kMinBuckets;
+            // Calculate the next power of 2.
+            if (newCapacity < nextPowerOf2Table.Length)
+                newCapacity = nextPowerOf2Table[newCapacity];
+            else
+                newCapacity = NextPowerOf2(newCapacity);
 
             var keys = new TKey[newCapacity];
             var values = new TValue[newCapacity];
             var hashes = new uint[newCapacity];
-            for (int i = 0; i < newCapacity; i++)
-                hashes[i] = kUnusedHash;
+
+            BlockCopyMemoryHelper.Memset(hashes, 0, newCapacity, kUnusedHash);
 
             Rehash(keys, values, hashes);
 
@@ -411,13 +439,11 @@ namespace Dictionary
 
         public void Clear()
         {
-            TKey defaultKey = default(TKey);
-            TValue defaultValue = default(TValue);
+            var keys = new TKey[_capacity];
+            var values = new TValue[_capacity];
+            var hashes = new uint[_capacity];
 
-            for (int i = 0; i < _capacity; i++)
-            {
-                SetNode(i, kUnusedHash, defaultKey, defaultValue);
-            }
+            BlockCopyMemoryHelper.Memset(hashes, 0, _capacity, kUnusedHash);
 
             _numberOfUsed = 0;
             _numberOfDeleted = 0;
@@ -598,7 +624,7 @@ namespace Dictionary
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private int NextPowerOf2(int v)
+        private static int NextPowerOf2(int v)
         {
             v--;
             v |= v >> 1;

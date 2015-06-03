@@ -17,7 +17,7 @@ namespace Dictionary
             Assert.Equal(32, dict.Capacity);
             Assert.NotNull(dict.Comparer);
 
-            dict = new FastDictionary<int, int>(null);
+            dict = new FastDictionary<int, int>(null as IEqualityComparer<int>);
             Assert.Equal(0, dict.Count);
             Assert.Equal(32, dict.Capacity);
             Assert.NotNull(dict.Comparer);
@@ -470,6 +470,40 @@ namespace Dictionary
             dict.Remove(2);
             Assert.False(dict.Contains(1));
             Assert.False(dict.Contains(2));
+        }
+
+        [Fact]
+        public void InsertAndRemoveWithoutGrowth()
+        {
+            var dict = new FastDictionary<long, int>(8);
+
+            for (int i = 0; i < 100; i++)
+            {
+                dict[i] = i;
+                dict.Remove(i);
+                int dummy;
+                Assert.False(dict.TryGetValue(i, out dummy));
+            }
+
+            Assert.Equal(0, dict.Count);
+            Assert.Equal(8, dict.Capacity);
+        }
+
+        [Fact]
+        public void AddAndRemoveWithoutGrowth()
+        {
+            var dict = new FastDictionary<long, int>(8);
+
+            for (int i = 0; i < 100; i++)
+            {
+                dict.Add(i, i);
+                dict.Remove(i);
+                int dummy;
+                Assert.False(dict.TryGetValue(i, out dummy));
+            }
+
+            Assert.Equal(0, dict.Count);
+            Assert.Equal(8, dict.Capacity);
         }
     }
 }
