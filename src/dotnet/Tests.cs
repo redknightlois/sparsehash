@@ -323,41 +323,7 @@ namespace Dictionary
 
             Assert.Equal(2, dict[1]);
             Assert.Throws<ArgumentException>(() => dict.Add(1, 3));
-        }
-
-        [Fact]
-        public void ShrinkTo()
-        {
-            var dict = new FastDictionary<int, int>(256);
-            for (int i = 0; i < 100; i += 10)
-                dict[i] = i;
-            
-            dict.Shrink(128);
-            Assert.Equal(10, dict.Count);
-            Assert.Equal(128, dict.Capacity);
-            for (int i = 0; i < 100; i += 10)
-                Assert.True(dict.Contains(i));
-
-            dict.Shrink(63);
-            Assert.Equal(10, dict.Count);
-            Assert.Equal(64, dict.Capacity);
-            for (int i = 0; i < 100; i += 10)
-                Assert.True(dict.Contains(i));
-
-            dict.Shrink(63);
-            Assert.Equal(10, dict.Count);
-            Assert.Equal(64, dict.Capacity);
-            for (int i = 0; i < 100; i += 10)
-                Assert.True(dict.Contains(i));
-
-            Assert.Throws<ArgumentException>(() => dict.Shrink(8));
-
-            dict.Shrink();
-            Assert.Equal(10, dict.Count);
-            Assert.Equal(16, dict.Capacity);
-            for (int i = 0; i < 100; i += 10)
-                Assert.True(dict.Contains(i));
-        }
+        }      
 
         [Fact]
         public void Clear()
