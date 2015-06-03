@@ -199,21 +199,40 @@ namespace Dictionary
             int hash = GetInternalHashCode(key);
             int bucket = hash % _capacity;
 
-            if (TryAdd(bucket, (uint)hash, key, value))
-                return;
-
-            Contract.Assert(_numberOfUsed < _capacity);
-
+            uint uhash = (uint)hash;
             int numProbes = 1;
-            bool couldInsert = false;
-            while (!couldInsert)
-            {               
+            do
+            {
+                uint nHash = _hashes[bucket];
+                if (nHash == kUnusedHash)
+                {
+                    _numberOfUsed++;
+                    _size++;
+
+                    goto SET;
+                }
+                else if (nHash == kDeletedHash)
+                {
+                    _numberOfDeleted--;
+                    _size++;
+
+                    goto SET;
+                }
+                else
+                {
+                    if (nHash == uhash && comparer.Equals(_keys[bucket], key))
+                        throw new ArgumentException("Cannot add duplicated key.", "key");
+                }
+                
                 bucket = (bucket + numProbes) % _capacity;
-
-                couldInsert = TryAdd(bucket, (uint)hash, key, value);
-
                 numProbes++;
             }
+            while (true);
+
+        SET:
+            this._hashes[bucket] = uhash;
+            this._keys[bucket] = key;
+            this._values[bucket] = value;
         }
 
         public bool Remove(TKey key)
@@ -308,25 +327,19 @@ namespace Dictionary
                 var hashes = _hashes;
                 var keys = _keys;
                 var values = _values;
-
-                var nKeys = keys[bucket];
-                if (CompareKey(hashes[bucket], nKeys, (uint)hash, key))
-                    return values[bucket];
-
-                int numProbes = 1; // how many times we've probed
-                Contract.Assert(_numberOfUsed < _capacity);
-
-                bool canContinue = true;
-                while (canContinue)
+                                
+                uint nHash;
+                int numProbes = 1;
+                do
                 {
-                    bucket = (bucket + numProbes) % _capacity;
-
-                    nKeys = keys[bucket];
-                    if (CompareKey(hashes[bucket], nKeys, (uint)hash, key, ref canContinue))
+                    nHash = hashes[bucket];
+                    if (nHash == hash && comparer.Equals(keys[bucket], key))
                         return values[bucket];
-
+                    
+                    bucket = (bucket + numProbes) % _capacity;
                     numProbes++;
                 }
+                while (nHash != kUnusedHash);
 
                 throw new KeyNotFoundException();
             }
@@ -340,101 +353,41 @@ namespace Dictionary
                 int hash = GetInternalHashCode(key);
                 int bucket = hash % _capacity;
 
-                if (TryInsert(bucket, (uint)hash, key, value))
-                    return;
-
-                Contract.Assert(_numberOfUsed < _capacity);
-
+                uint uhash = (uint)hash;
                 int numProbes = 1;
-                bool couldInsert = false;
-                while (!couldInsert)
+                do
                 {
+                    uint nHash = _hashes[bucket];
+                    if (nHash == kUnusedHash)
+                    {
+                        _numberOfUsed++;
+                        _size++;
+
+                        goto SET;
+                    }
+                    else if (nHash == kDeletedHash)
+                    {
+                        _numberOfDeleted--;
+                        _size++;
+
+                        goto SET;
+                    }
+                    else
+                    {
+                        if (nHash == uhash && comparer.Equals(_keys[bucket], key))
+                            goto SET;
+                    }
+
                     bucket = (bucket + numProbes) % _capacity;
-
-                    couldInsert = TryInsert(bucket, (uint)hash, key, value);
-
                     numProbes++;
                 }
+                while (true);
+
+            SET:
+                this._hashes[bucket] = uhash;
+                this._keys[bucket] = key;
+                this._values[bucket] = value;
             }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private bool TryAdd(int node, uint hash, TKey key, TValue value)
-        {
-            var nHash = _hashes[node];
-            
-            if (nHash == kUnusedHash)
-            {
-                SetNode(node, hash, key, value);
-
-                _numberOfUsed++;
-                _size++;
-
-                return true;
-            }
-            else if (nHash == kDeletedHash)
-            {
-                SetNode(node, hash, key, value);
-
-                _numberOfDeleted--;
-                _size++;
-
-                return true;
-            }
-            else if (CompareKey(nHash, _keys[node], hash, key))
-            {
-                throw new ArgumentException("Cannot add duplicated key.", "key");
-            }
-
-            return false;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private bool TryInsert(int node, uint hash, TKey key, TValue value)
-        {
-            uint nHash = _hashes[node];
-            if (nHash == kUnusedHash)
-            {
-                _numberOfUsed++;
-                _size++;
-
-                goto SET;
-            }
-            else if (nHash == kDeletedHash)
-            {
-                _numberOfDeleted--;
-                _size++;
-
-                goto SET;
-            }
-            else if (CompareKey(nHash, _keys[node], hash, key))
-            {
-                goto SET;
-            }
-            return false;
-
-        SET:
-            SetNode(node, hash, key, value);
-            return true;
-        }
-
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void UpdateNode(int node, uint hash, TKey key, TValue value)
-        {
-            uint nHash = _hashes[node];
-            if (nHash == kUnusedHash)
-            {
-                _numberOfUsed++;
-                _size++;
-            }
-            else if (nHash == kDeletedHash)
-            {
-                _numberOfDeleted--;
-                _size++;
-            }
-
-            SetNode(node, hash, key, value);
         }
 
         public void Clear()
@@ -458,17 +411,6 @@ namespace Dictionary
             return (Lookup(key) != InvalidNodePosition);
         }
 
-
-        public void Reserve(int minimumSize)
-        {
-            int newCapacity = (minimumSize < kMinBuckets ? kInitialCapacity : minimumSize);
-            while (newCapacity < _capacity)
-                newCapacity *= 2;
-
-            if (newCapacity > _capacity)
-                Grow(newCapacity);
-        }
-
         private void Grow(int newCapacity)
         {
             Contract.Requires(newCapacity >= _capacity);
@@ -488,65 +430,66 @@ namespace Dictionary
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryGetValue(TKey key, out TValue value)
         {
+
+            Contract.Requires(key != null);
+
             int hash = GetInternalHashCode(key);
             int bucket = hash % _capacity;
 
             var hashes = _hashes;
             var keys = _keys;
+            var values = _values;
 
-            var nKey = keys[bucket];
-            if (CompareKey(hashes[bucket], nKey, (uint)hash, key))
+            uint nHash;
+            int numProbes = 1;
+            do
             {
-                value = _values[bucket];
-                return true;
-            }
-
-            uint numProbes = 1; // how many times we've probed
-            Contract.Assert(_numberOfUsed < _capacity);
-
-            bool canContinue = true;
-            while (canContinue)
-            {
-                bucket = (int)((bucket + numProbes) % _capacity);
-
-                nKey = keys[bucket];
-                if (CompareKey(hashes[bucket], nKey, (uint)hash, key, ref canContinue))
+                nHash = hashes[bucket];
+                if (nHash == hash && comparer.Equals(keys[bucket], key))
                 {
-                    value = _values[bucket];
+                    value = values[bucket];
                     return true;
                 }
+                    
 
+
+                bucket = (bucket + numProbes) % _capacity;
                 numProbes++;
             }
+            while (nHash != kUnusedHash);
 
             value = default(TValue);
-
             return false;
+
+
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool CompareKey(uint nHash, TKey nKey, uint hash, TKey key, ref bool probeAgain)
         {
             probeAgain = nHash != kUnusedHash;
-            if (nHash != hash)
-                return false;
+            return nHash == hash && comparer.Equals(nKey, key);
 
-            if (comparer.Equals(nKey, key))
-                return true;
+            //if (nHash != hash)
+            //    return false;
 
-            return false;
+            //if (comparer.Equals(nKey, key))
+            //    return true;
+
+            //return false;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool CompareKey(uint nHash, TKey nKey, uint hash, TKey key)
         {
-            if (nHash != hash)
-                return false;
+            return nHash == hash && comparer.Equals(nKey, key);
+            //if (nHash != hash)
+            //    return false;
 
-            if (comparer.Equals(nKey, key))
-                return true;
+            //if (comparer.Equals(nKey, key))
+            //    return true;
 
-            return false;
+            //return false;
         }
 
 
@@ -564,23 +507,23 @@ namespace Dictionary
             var hashes = _hashes;
             var keys = _keys;
 
-            if (CompareKey(hashes[bucket], keys[bucket], (uint)hash, key))
-                return bucket;
-
+            uint uhash = (uint) hash;
 
             uint numProbes = 1; // how many times we've probed
             Contract.Assert(_numberOfUsed < _capacity);
 
             bool canContinue = true;
-            while (canContinue)
-            {
-                bucket = (int)((bucket + numProbes) % _capacity);
-
-                if (CompareKey(hashes[bucket], keys[bucket], (uint)hash, key, ref canContinue))
+            uint nHash;
+            do
+            {                
+                nHash = hashes[bucket];
+                if (nHash == hash && comparer.Equals(keys[bucket], key))
                     return bucket;
 
+                bucket = (int)((bucket + numProbes) % _capacity);
                 numProbes++;
             }
+            while (nHash != kUnusedHash);
 
             return InvalidNodePosition;
         }
