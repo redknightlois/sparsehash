@@ -183,7 +183,7 @@ namespace Dictionary
 
 
             Assert.Equal(100, dict.Count);
-            Assert.Equal(128, dict.Capacity);
+            Assert.Equal(256, dict.Capacity);
         }
 
         [Fact]
@@ -227,7 +227,7 @@ namespace Dictionary
             }
 
             Assert.Equal(100, dict.Count);
-            Assert.Equal(128, dict.Capacity);
+            Assert.Equal(256, dict.Capacity);
         }
 
         [Fact]
@@ -273,7 +273,29 @@ namespace Dictionary
             }
 
             Assert.Equal(50, dict.Count);
-            Assert.Equal(128, dict.Capacity);
+            Assert.Equal(256, dict.Capacity);
+        }
+
+        [Fact]
+        public void ConsecutiveInsertsWithShrink()
+        {
+            var dict = new FastDictionary<int, int>();
+
+            for (int i = 0; i < 100; i++)
+                dict[i] = i;
+
+            dict.Clear();
+
+            for (int i = 0; i < 33; i++)
+                dict[i] = i;
+
+            dict.Remove(32);
+
+            int value;
+            Assert.True(dict.TryGetValue(0, out value));
+            
+            Assert.Equal(32, dict.Count);
+            Assert.True(dict.Capacity > 32);
         }
 
         [Fact]
@@ -323,6 +345,31 @@ namespace Dictionary
 
             Assert.Equal(2, dict[1]);
             Assert.Throws<ArgumentException>(() => dict.Add(1, 3));
+        }
+
+
+        [Fact]
+        public void EnumeratorsWithJumps()
+        {
+            var dict = new FastDictionary<int, int>(16);
+            dict[1] = 1;
+            dict[2] = 2;
+            dict[15] = 15;
+
+            int count = 0;
+            foreach (var item in dict.Keys)
+                count++;
+            Assert.Equal(3, count);
+
+            count = 0;
+            foreach (var item in dict.Values)
+                count++;
+            Assert.Equal(3, count);
+
+            count = 0;
+            foreach (var item in dict)
+                count++;
+            Assert.Equal(3, count);
         }      
 
         [Fact]
@@ -471,5 +518,7 @@ namespace Dictionary
             Assert.Equal(0, dict.Count);
             Assert.Equal(8, dict.Capacity);
         }
+
+
     }
 }

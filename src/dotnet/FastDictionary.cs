@@ -36,7 +36,7 @@ namespace Dictionary
         // when number of items == capacity. Default value of 6 means it grows when
         // number of items == capacity * 3/2 (6/4). Higher load == tighter maps, but bigger
         // risk of collisions.
-        static int tLoadFactor4 = 5;
+        static int tLoadFactor = 6;
 
         private uint[] _hashes;
         private TKey[] _keys;
@@ -89,6 +89,7 @@ namespace Dictionary
         public FastDictionary(int initialBucketCount, IEnumerable<KeyValuePair<TKey, TValue>> src, IEqualityComparer<TKey> comparer)
             : this(initialBucketCount, comparer)
         {
+            Contract.Requires(src != null);
             Contract.Ensures(_capacity >= initialBucketCount);
 
             foreach (var item in src)
@@ -105,6 +106,7 @@ namespace Dictionary
 
         public FastDictionary(int initialBucketCount, FastDictionary<TKey, TValue> src, IEqualityComparer<TKey> comparer)
         {
+            Contract.Requires(src != null);
             Contract.Ensures(_capacity >= initialBucketCount);
             Contract.Ensures(_capacity >= src._capacity);
 
@@ -180,8 +182,8 @@ namespace Dictionary
             this._numberOfUsed = 0;
             this._numberOfDeleted = 0;
             this._size = 0;
-            
-            this._nextGrowthThreshold = _capacity * 4 / tLoadFactor4;
+
+            this._nextGrowthThreshold = _capacity * 4 / tLoadFactor;
         }
 
         public FastDictionary(int initialBucketCount = kInitialCapacity)
@@ -190,9 +192,11 @@ namespace Dictionary
 
         public void Add(TKey key, TValue value)
         {
+            Contract.Ensures(this._numberOfUsed <= this._capacity);
+            Contract.EndContractBlock();
+
             if (key == null)
                 throw new ArgumentNullException("key");
-            Contract.EndContractBlock();
 
             ResizeIfNeeded();
 
@@ -237,9 +241,10 @@ namespace Dictionary
 
         public bool Remove(TKey key)
         {
+            Contract.Ensures(this._numberOfUsed < this._capacity);
+
             if (key == null)
                 throw new ArgumentNullException("key");
-            Contract.EndContractBlock();
 
             int bucket = Lookup(key);
             if (bucket == InvalidNodePosition)
@@ -266,10 +271,10 @@ namespace Dictionary
             Contract.Assert(_numberOfDeleted >= Contract.OldValue<int>(_numberOfDeleted));
             Contract.Assert(_hashes[node] == kDeletedHash);
 
-            if (3 * this._numberOfDeleted / 2 > this._capacity - this._numberOfUsed )
+            if (3 * this._numberOfDeleted / 2 > this._capacity - this._numberOfUsed)
             {
-                // We will force a rehash.
-                Shrink(_size);
+                // We will force a rehash with the growth factor based on the current size.
+                Shrink(Math.Max(_initialCapacity, _size * 2));
             }
         }
 
@@ -284,10 +289,8 @@ namespace Dictionary
 
         private void Shrink(int newCapacity)
         {
-            Contract.Requires(newCapacity >= 0);
-
-            if (newCapacity < _size)
-                throw new ArgumentException("Cannot shrink the dictionary beyond the amount of elements in it.", "newCapacity");
+            Contract.Requires(newCapacity > _size);
+            Contract.Ensures(this._numberOfUsed < this._capacity);
 
             // Calculate the next power of 2.
             if (newCapacity < nextPowerOf2Table.Length)
@@ -320,6 +323,7 @@ namespace Dictionary
             get
             {
                 Contract.Requires(key != null);
+                Contract.Ensures(this._numberOfUsed <= this._capacity);
 
                 int hash = GetInternalHashCode(key);
                 int bucket = hash % _capacity;
@@ -338,6 +342,8 @@ namespace Dictionary
                     
                     bucket = (bucket + numProbes) % _capacity;
                     numProbes++;
+
+                    Debug.Assert(numProbes < 100);
                 }
                 while (nHash != kUnusedHash);
 
@@ -347,6 +353,7 @@ namespace Dictionary
             set
             {
                 Contract.Requires(key != null);
+                Contract.Ensures(this._numberOfUsed <= this._capacity);
 
                 ResizeIfNeeded();
 
@@ -380,6 +387,8 @@ namespace Dictionary
 
                     bucket = (bucket + numProbes) % _capacity;
                     numProbes++;
+
+                    Debug.Assert(numProbes < 100);
                 }
                 while (true);
 
@@ -404,9 +413,10 @@ namespace Dictionary
 
         public bool Contains(TKey key)
         {
+            Contract.Ensures(this._numberOfUsed <= this._capacity);
+
             if (key == null)
                 throw new ArgumentNullException("key");
-            Contract.EndContractBlock();
 
             return (Lookup(key) != InvalidNodePosition);
         }
@@ -423,22 +433,20 @@ namespace Dictionary
             BlockCopyMemoryHelper.Memset(hashes, 0, newCapacity, kUnusedHash);
 
             Rehash(keys, values, hashes);
-
-            _nextGrowthThreshold = _capacity * 4 / tLoadFactor4;
-        }
+        }        
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryGetValue(TKey key, out TValue value)
         {
-
             Contract.Requires(key != null);
+            Contract.Ensures(this._numberOfUsed <= this._capacity);
 
             int hash = GetInternalHashCode(key);
             int bucket = hash % _capacity;
 
             var hashes = _hashes;
             var keys = _keys;
-            var values = _values;
+            var values = _values;            
 
             uint nHash;
             int numProbes = 1;
@@ -451,47 +459,17 @@ namespace Dictionary
                     return true;
                 }
                     
-
-
                 bucket = (bucket + numProbes) % _capacity;
                 numProbes++;
+
+                Debug.Assert(numProbes < 100);
             }
             while (nHash != kUnusedHash);
 
             value = default(TValue);
             return false;
 
-
         }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private bool CompareKey(uint nHash, TKey nKey, uint hash, TKey key, ref bool probeAgain)
-        {
-            probeAgain = nHash != kUnusedHash;
-            return nHash == hash && comparer.Equals(nKey, key);
-
-            //if (nHash != hash)
-            //    return false;
-
-            //if (comparer.Equals(nKey, key))
-            //    return true;
-
-            //return false;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private bool CompareKey(uint nHash, TKey nKey, uint hash, TKey key)
-        {
-            return nHash == hash && comparer.Equals(nKey, key);
-            //if (nHash != hash)
-            //    return false;
-
-            //if (comparer.Equals(nKey, key))
-            //    return true;
-
-            //return false;
-        }
-
 
         /// <summary>
         /// 
@@ -500,19 +478,16 @@ namespace Dictionary
         /// <returns>Position of the node in the array</returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private int Lookup(TKey key)
-        {
+        {          
             int hash = GetInternalHashCode(key);
             int bucket = hash % _capacity;
 
             var hashes = _hashes;
             var keys = _keys;
 
-            uint uhash = (uint) hash;
-
+            uint uhash = (uint)hash;
             uint numProbes = 1; // how many times we've probed
-            Contract.Assert(_numberOfUsed < _capacity);
 
-            bool canContinue = true;
             uint nHash;
             do
             {                
@@ -522,6 +497,8 @@ namespace Dictionary
 
                 bucket = (int)((bucket + numProbes) % _capacity);
                 numProbes++;
+
+                Debug.Assert(numProbes < 100);
             }
             while (nHash != kUnusedHash);
 
@@ -538,7 +515,7 @@ namespace Dictionary
         {
             uint capacity = (uint)keys.Length;
 
-            this._size = 0;
+            var size = 0;
 
             for (int it = 0; it < _hashes.Length; it++)
             {
@@ -559,16 +536,19 @@ namespace Dictionary
                 keys[bucket] = _keys[it];
                 values[bucket] = _values[it];
 
-                this._size++;
+                size++;
             }
 
             this._capacity = hashes.Length;
+            this._size = size;
             this._hashes = hashes;
             this._keys = keys;
             this._values = values;
-            
-            this._numberOfUsed = _size;
+
+            this._numberOfUsed = size;
             this._numberOfDeleted = 0;
+
+            this._nextGrowthThreshold = _capacity * 4 / tLoadFactor; 
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -636,19 +616,22 @@ namespace Dictionary
             internal Enumerator(FastDictionary<TKey, TValue> dictionary)
             {
                 this.dictionary = dictionary;
-                index = 0;
-                current = new KeyValuePair<TKey, TValue>();
+                this.index = 0;
+                this.current = new KeyValuePair<TKey, TValue>();
             }
 
             public bool MoveNext()
             {
                 var dict = dictionary;
 
+                var count = dict._capacity;
+                var hashes = dict._hashes;
+
                 // Use unsigned comparison since we set index to dictionary.count+1 when the enumeration ends.
                 // dictionary.count+1 could be negative if dictionary.count is Int32.MaxValue
-                while (index < dict._capacity)
+                while (index < count)
                 {
-                    if (dict._hashes[index] < kDeletedHash)
+                    if (hashes[index] < kDeletedHash)
                     {
                         current = new KeyValuePair<TKey, TValue>(dict._keys[index], dict._values[index]);
                         index++;
@@ -703,7 +686,6 @@ namespace Dictionary
         {
             if (key == null)
                 throw new ArgumentNullException("key");
-            Contract.EndContractBlock();
 
             return (Lookup(key) != InvalidNodePosition);
         }
@@ -811,7 +793,7 @@ namespace Dictionary
 
                 public bool MoveNext()
                 {
-                    var count = dictionary.Count;
+                    var count = dictionary._capacity;
 
                     var hashes = dictionary._hashes;
                     var keys = dictionary._keys;
@@ -935,7 +917,7 @@ namespace Dictionary
 
                 public bool MoveNext()
                 {
-                    var count = dictionary.Count;
+                    var count = dictionary._capacity;
 
                     var hashes = dictionary._hashes;
                     var values = dictionary._values;
