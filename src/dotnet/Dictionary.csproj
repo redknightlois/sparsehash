@@ -126,6 +126,7 @@
     <Compile Include="FastDictionary.cs" />
     <Compile Include="Performance.cs" />
     <Compile Include="Tests.cs" />
+    <Compile Include="TryPtr.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config" />
